@@ -1,7 +1,8 @@
-from typing import TypedDict
+from typing import Any, TypedDict
 
-from langchain.agents import create_agent
+from langchain.agents import AgentState, create_agent
 from langchain.agents.middleware import (
+    AgentMiddleware,
     dynamic_prompt,
     ModelRequest,
     ModelResponse,
@@ -12,6 +13,17 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 
 class Context(TypedDict):
     user_role: str
+
+
+class CustomState(AgentState):
+    user_preferences: dict
+
+
+class CustomMiddleware(AgentMiddleware):
+    state_schema = CustomState
+
+    def before_model(self, state: CustomState, runtime) -> dict[str, Any] | None:
+        pass
 
 
 basic_model = ChatGoogleGenerativeAI(model="gemini-2.5-flash")
@@ -47,7 +59,7 @@ def dynamic_model_selection(request: ModelRequest, handler) -> ModelResponse:
 
 agent = create_agent(
     context_schema=Context,
-    middleware=[dynamic_model_selection, user_role_prompt],
+    middleware=[dynamic_model_selection, user_role_prompt, CustomMiddleware()],
     model=basic_model,
     name="ai_agent",
 )
