@@ -1,6 +1,22 @@
 from langchain.agents import create_agent
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain.agents.middleware import wrap_model_call, ModelRequest, ModelResponse
 
-model = ChatGoogleGenerativeAI(model="gemini-2.5-flash")
+basic_model = ChatGoogleGenerativeAI(model="gemini-2.5-flash")
 
-agent = create_agent(model)
+advanced_model = ChatGoogleGenerativeAI(model="gemini-2.5-pro")
+
+
+@wrap_model_call
+def dynamic_model_selection(request: ModelRequest, handler) -> ModelResponse:
+    message_count = len(request.state["messages"])
+
+    if message_count > 10:
+        model = basic_model
+    else:
+        model = advanced_model
+
+    return handler(request.override(model=model))
+
+
+agent = create_agent(model=basic_model, middleware=[dynamic_model_selection])
