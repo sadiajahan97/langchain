@@ -19,4 +19,8 @@ def dynamic_model_selection(request: ModelRequest, handler) -> ModelResponse:
     return handler(request.override(model=model))
 
 
-agent = create_agent(model=basic_model, middleware=[dynamic_model_selection])
+agent = create_agent(
+    model=basic_model,
+    system_prompt="You are a helpful assistant. Be concise and accurate.",
+    middleware=[dynamic_model_selection],
+)
