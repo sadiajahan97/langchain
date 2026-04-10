@@ -243,6 +243,21 @@ def get_data_from_wikipedia(language: str, query: str):
 
 
 @wrap_model_call
+def context_based_tools(
+    request: ModelRequest, handler: Callable[[ModelRequest], ModelResponse]
+) -> ModelResponse:
+    is_premium = request.runtime.context.get("is_premium", False)
+
+    tools = (
+        [get_country_by_name, get_data_from_wikipedia]
+        if is_premium
+        else [get_country_by_name]
+    )
+
+    return handler(request.override(tools=tools))
+
+
+@wrap_model_call
 def dynamic_model_selection(
     request: ModelRequest, handler: Callable[[ModelRequest], ModelResponse]
 ) -> ModelResponse:
