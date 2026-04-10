@@ -12,11 +12,12 @@ from langchain.agents.middleware import (
 from langchain.messages import SystemMessage
 from langchain.tools import tool
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langgraph.store.memory import InMemoryStore
 from wikipediaapi import Wikipedia
 
 
 class Context(TypedDict):
-    is_premium: bool
+    user_id: str
     user_role: str
 
 
@@ -144,8 +145,8 @@ def user_role_prompt(request: ModelRequest) -> str:
         return f"{base_prompt} You are an expert in your field. Provide detailed technical responses."
     elif user_role == "beginner":
         return f"{base_prompt} You are a beginner. Explain concepts simply and avoid jargon."
-
-    return base_prompt
+    else:
+        return base_prompt
 
 
 @tool
@@ -243,16 +244,25 @@ def get_data_from_wikipedia(language: str, query: str):
 
 
 @wrap_model_call
-def context_based_tools(
+def store_based_tools(
     request: ModelRequest, handler: Callable[[ModelRequest], ModelResponse]
 ) -> ModelResponse:
-    is_premium = request.runtime.context.get("is_premium", False)
+    user_id = request.runtime.context.get("user_id")
 
-    tools = (
-        [get_country_by_name, get_data_from_wikipedia]
-        if is_premium
-        else [get_country_by_name]
-    )
+    if not user_id:
+        tools = []
+    else:
+        store = request.runtime.store
+
+        is_premium = store.get(("is_premium",), user_id)
+
+        tools = (
+            request.tools
+            if is_premium
+            else [
+                tool for tool in request.tools if tool.name != "get_data_from_wikipedia"
+            ]
+        )
 
     return handler(request.override(tools=tools))
 
@@ -261,9 +271,16 @@ def context_based_tools(
 def dynamic_model_selection(
     request: ModelRequest, handler: Callable[[ModelRequest], ModelResponse]
 ) -> ModelResponse:
-    is_premium = len(request.runtime.context.get("is_premium", False))
+    user_id = request.runtime.context.get("user_id")
 
-    model = advanced_model if is_premium else basic_model
+    if not user_id:
+        model = basic_model
+    else:
+        store = request.runtime.store
+
+        is_premium = store.get(("is_premium",), user_id)
+
+        model = advanced_model if is_premium else basic_model
 
     return handler(request.override(model=model))
 
@@ -272,7 +289,8 @@ agent = create_agent(
     context_schema=Context,
     # middleware=[dynamic_model_selection, user_role_prompt, CustomMiddleware()],
     model=basic_model,
-    name="ai_agent",
+    name="geography_assistant",
+    store=InMemoryStore(),
     system_prompt=system_prompt,
     tools=[get_country_by_name],
 )
