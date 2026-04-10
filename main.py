@@ -1,5 +1,5 @@
 import requests
-from typing import Any, TypedDict
+from typing import Any, Callable, TypedDict
 
 from langchain.agents import AgentState, create_agent
 from langchain.agents.middleware import (
@@ -12,6 +12,7 @@ from langchain.agents.middleware import (
 from langchain.messages import SystemMessage
 from langchain.tools import tool
 from langchain_google_genai import ChatGoogleGenerativeAI
+from wikipediaapi import Wikipedia
 
 
 class Context(TypedDict):
@@ -204,8 +205,46 @@ def get_country_by_name(country_name: str) -> list[CountryResponse]:
     return response.json()
 
 
+@tool
+def get_data_from_wikipedia(language: str, query: str):
+    """
+    Retrieves the summary of a Wikipedia page based on a search query.
+
+    This function searches Wikipedia in the specified language for the given query,
+    retrieves the top search result, and extracts the summary text of that page.
+    It uses a custom user agent to comply with Wikipedia's request policies.
+
+    Args:
+        language (str): The language code for the Wikipedia edition to search 
+            (e.g., 'en' for English, 'bn' for Bengali, 'fr' for French).
+        query (str): The search term or topic to look up on Wikipedia.
+
+    Returns:
+        str: The introductory summary text of the most relevant Wikipedia page found.
+
+    Raises:
+        IndexError: If no matching Wikipedia pages are found (the results list is empty).
+        Exception: Built-in library exceptions if there are issues connecting 
+            to the Wikipedia API or retrieving the page content.
+    """
+    wikipedia = Wikipedia(
+        language=language,
+        user_agent="WikipediaTool/1.0 (https://github.com/sadiajahan97/langchain; sadiaiffatjahan@gmail.com) python-requests/2.33.1",
+    )
+
+    results = wikipedia.search(limit=1, query=query)
+
+    title = list(results.pages.keys())[0]
+
+    page = wikipedia.page(title=title)
+
+    return page.summary
+
+
 @wrap_model_call
-def dynamic_model_selection(request: ModelRequest, handler) -> ModelResponse:
+def dynamic_model_selection(
+    request: ModelRequest, handler: Callable[[ModelRequest], ModelResponse]
+) -> ModelResponse:
     message_count = len(request.state["messages"])
 
     if message_count > 10:
