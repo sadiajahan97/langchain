@@ -1,18 +1,25 @@
-import requests
-from typing import Any, Callable, TypedDict
-
+from asyncio import run
+from dotenv import load_dotenv
+from fastmcp import Client
+from fastmcp.client.transports import StreamableHttpTransport
+from json import loads
 from langchain.agents import AgentState, create_agent
 from langchain.agents.middleware import (
     AgentMiddleware,
-    dynamic_prompt,
     ModelRequest,
     ModelResponse,
+    ToolCallRequest,
+    dynamic_prompt,
     wrap_model_call,
 )
 from langchain.messages import SystemMessage
-from langchain.tools import tool
+from langchain.tools import StructuredTool, tool
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.store.memory import InMemoryStore
+from os import getenv
+from pydantic import create_model
+from requests import get
+from typing import Any, Callable, TypedDict
 from wikipediaapi import Wikipedia
 
 
@@ -121,9 +128,78 @@ class CustomState(AgentState):
     user_preferences: dict
 
 
+class DynamicToolMiddleware(AgentMiddleware):
+    def __init__(self):
+        self.dynamic_tools = {}
+
+    def wrap_model_call(
+        self, request: ModelRequest, handler: Callable[[ModelRequest], ModelResponse]
+    ) -> ModelResponse:
+        async def _inner():
+            async with client:
+                tools = await client.get_tools()
+
+                self.dynamic_tools = {tool.name: tool for tool in tools}
+
+                dynamic_tools = []
+
+                for tool in tools:
+                    fields = {}
+
+                    for param in tool.params:
+                        fields[param] = (str, ...)
+
+                    dynamic_tools.append(
+                        StructuredTool.from_function(
+                            args_schema=create_model(f"{tool.name}_args", **fields),
+                            description=(
+                                f"{tool.description}\n"
+                                f"Parameters: {', '.join(tool.params)} (all are strings)"
+                            ),
+                            func=lambda **kwargs: "Handled by wrap_tool_call function",
+                            name=tool.name,
+                        )
+                    )
+
+            return await handler(
+                request.override(tools=[*request.tools, *dynamic_tools])
+            )
+
+        return run(_inner())
+
+    def wrap_tool_call(self, request: ToolCallRequest, handler):
+        tool_args = request.tool_call.get("args", {})
+
+        tool_name = request.tool_call["name"]
+
+        if tool_name in self.dynamic_tools:
+
+            async def _inner():
+                async with client:
+                    result = await client.call_tool(
+                        tool_name,
+                        {
+                            "instructions": f"Execute {tool_name} with parameters: {tool_args}",
+                            **tool_args,
+                        },
+                    )
+
+                    return loads(result.content[0].text)
+
+            return run(_inner())
+        else:
+            return handler(request)
+
+
+load_dotenv()
+
 advanced_model = ChatGoogleGenerativeAI(model="gemini-2.5-pro")
 
+api_key = getenv("API_KEY", "")
+
 basic_model = ChatGoogleGenerativeAI(model="gemini-2.5-flash")
+
+server_url = "https://mcp.zapier.com/api/v1/connect"
 
 system_prompt = SystemMessage(
     content=[
@@ -133,6 +209,12 @@ system_prompt = SystemMessage(
         },
     ]
 )
+
+transport = StreamableHttpTransport(
+    server_url=server_url, headers={"Authorization": f"Bearer {api_key}"}
+)
+
+client = Client(transport=transport)
 
 
 @dynamic_prompt
@@ -200,7 +282,7 @@ def get_country_by_name(country_name: str) -> list[CountryResponse]:
     - translations: List of country name translations
     - unMember: UN Member status
     """
-    response = requests.get(f"https://restcountries.com/v3.1/name/{country_name}")
+    response = get(f"https://restcountries.com/v3.1/name/{country_name}")
 
     response.raise_for_status()
 
