@@ -16,6 +16,7 @@ from wikipediaapi import Wikipedia
 
 
 class Context(TypedDict):
+    is_premium: bool
     user_role: str
 
 
@@ -215,7 +216,7 @@ def get_data_from_wikipedia(language: str, query: str):
     It uses a custom user agent to comply with Wikipedia's request policies.
 
     Args:
-        language (str): The language code for the Wikipedia edition to search 
+        language (str): The language code for the Wikipedia edition to search
             (e.g., 'en' for English, 'bn' for Bengali, 'fr' for French).
         query (str): The search term or topic to look up on Wikipedia.
 
@@ -224,7 +225,7 @@ def get_data_from_wikipedia(language: str, query: str):
 
     Raises:
         IndexError: If no matching Wikipedia pages are found (the results list is empty).
-        Exception: Built-in library exceptions if there are issues connecting 
+        Exception: Built-in library exceptions if there are issues connecting
             to the Wikipedia API or retrieving the page content.
     """
     wikipedia = Wikipedia(
@@ -245,12 +246,9 @@ def get_data_from_wikipedia(language: str, query: str):
 def dynamic_model_selection(
     request: ModelRequest, handler: Callable[[ModelRequest], ModelResponse]
 ) -> ModelResponse:
-    message_count = len(request.state["messages"])
+    is_premium = len(request.runtime.context.get("is_premium", False))
 
-    if message_count > 10:
-        model = basic_model
-    else:
-        model = advanced_model
+    model = advanced_model if is_premium else basic_model
 
     return handler(request.override(model=model))
 
