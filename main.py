@@ -18,7 +18,7 @@ from langchain.tools import StructuredTool, tool
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.store.memory import InMemoryStore
 from os import getenv
-from pydantic import create_model
+from pydantic import BaseModel, create_model
 from requests import get
 from typing import Any, Callable, TypedDict
 from wikipediaapi import Wikipedia
@@ -190,6 +190,10 @@ class DynamicToolMiddleware(AgentMiddleware):
             return run(_inner())
         else:
             return handler(request)
+
+
+class Response(BaseModel):
+    response: str
 
 
 load_dotenv()
@@ -384,6 +388,7 @@ agent = create_agent(
     # middleware=[dynamic_model_selection, user_role_prompt, CustomMiddleware()],
     model=basic_model,
     name="geography_assistant",
+    response_format=Response,
     store=InMemoryStore(),
     system_prompt=system_prompt,
     tools=[get_country_by_name],
